@@ -1,7 +1,9 @@
 import sys
 import numpy as np
 import socket
-import io
+import binascii
+import re
+
 from PIL import Image
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap, QImage
@@ -15,49 +17,47 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
 )
 
+HOST = "192.168.1.70"
+PORT = 7
+IMG_HEIGHT = 240
+IMG_WIDTH = 240
+
 class TCPClient:
     def __init__(self, server_ip, server_port):
         self.server_ip = server_ip
         self.server_port = server_port
         self.client_socket = None
 
-    def connect(self):
-        try:
-            self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.client_socket.connect((self.server_ip, self.server_port))
-            print(f"Connected to {self.server_ip}:{self.server_port}")
-        except Exception as e:
-            print(f"Connection error: {e}")
-            self.client_socket.close()
+    def send_request(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((self.server_ip, self.server_port))
+            s.sendall(b"get_img")
+            data = s.recv(240*240)
 
-    def send_request(self, request_message):
-        try:
-            self.client_socket.send(request_message.encode())
-        except Exception as e:
-            print(f"Error sending request: {e}")
+        b = bytearray(data)
+        test  = binascii.hexlify(b)
+        print(test)
 
-    def receive_bitmap(self):
-        try:
-            # Read the size of the incoming image
-            image_size_bytes = self.client_socket.recv(1)
-            image_size = int.from_bytes(image_size_bytes, byteorder='big')
+        out = str(test, 'UTF-8')
+        raw_list = re.findall('.{1,2}', out)
+        full_img = []
+        for i in range(IMG_HEIGHT):
+            img_line = []
+            for j in range(IMG_WIDTH):
+                img = int(raw_list[i*IMG_HEIGHT + j], 16)
+                r = (img >> 5) / 7.0 * 255.99
+                g = ((img & 0x1c) >> 2) / 7.0 * 255.99
+                b = (img & 0x3) / 3.0 * 255.99
+                img_line.append([r, g, b])
+            full_img.append(img_line)
 
-            # Receive the image data
-            image_data = b""
-            while len(image_data) < image_size:
-                chunk = self.client_socket.recv(image_size - len(image_data))
-                if not chunk:
-                    break
-                image_data += chunk
+        rgb = np.array(full_img, dtype="uint8")
 
-            # Convert image data to a NumPy array
-            image = Image.open(io.BytesIO(image_data))
-            image_array = np.array(image)
+        # print(rgb.shape)
 
-            return image_array
-        except Exception as e:
-            print(f"Error receiving bitmap: {e}")
-            return None
+        # im = Image.fromarray(rgb.astype(np.uint8))
+
+        return rgb
 
     def close(self):
         self.client_socket.close()
@@ -72,7 +72,7 @@ class MADClient(QMainWindow):
 
         self.initUI()
         self.image = None
-        self.tcpclient = TCPClient("10.100.0.180", 10)
+        self.tcpclient = TCPClient(HOST, PORT)
 
     def initUI(self):
         # Create the main widget and set it as the central widget
@@ -105,14 +105,10 @@ class MADClient(QMainWindow):
         # Example NumPy array (you can replace this with your own image data)
         # In this example, we create a simple red square image
         width, height = 240, 240
-        # image_data = np.zeros((height, width, 3), dtype=np.uint8)
-        # image_data[:, :] = [255, 0, 0]  # Red color
-        self.tcpclient.connect()
-        self.tcpclient.send_request("get")
         print("requested")
-        self.image = self.tcpclient.receive_bitmap()
+        self.image = self.tcpclient.send_request()
         print("received")
-        print(self.image)
+
         # Create a QImage from the NumPy array
         q_image = QImage(
             self.image.data, width, height, 3 * width, QImage.Format.Format_RGB888
