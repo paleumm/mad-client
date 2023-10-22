@@ -17,10 +17,12 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
 )
 
-HOST = "192.168.1.70"
+HOST = "10.100.20.70"
 PORT = 7
 IMG_HEIGHT = 240
 IMG_WIDTH = 240
+DATA = IMG_HEIGHT * IMG_WIDTH
+regex_pattern = r"(..)(..)"
 
 class TCPClient:
     def __init__(self, server_ip, server_port):
@@ -32,30 +34,26 @@ class TCPClient:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((self.server_ip, self.server_port))
             s.sendall(b"get_img")
-            data = s.recv(240*240)
+            data = s.recv(DATA * 2)
 
         b = bytearray(data)
         test  = binascii.hexlify(b)
-        print(test)
-
         out = str(test, 'UTF-8')
-        raw_list = re.findall('.{1,2}', out)
+        raw_list = re.findall('....', out)
         full_img = []
         for i in range(IMG_HEIGHT):
             img_line = []
             for j in range(IMG_WIDTH):
-                img = int(raw_list[i*IMG_HEIGHT + j], 16)
-                r = (img >> 5) / 7.0 * 255.99
-                g = ((img & 0x1c) >> 2) / 7.0 * 255.99
-                b = (img & 0x3) / 3.0 * 255.99
+                img_str = raw_list[i*IMG_HEIGHT + j]
+                res = re.sub(regex_pattern, r"\2\1", img_str)
+                img = int(res, 16)
+                r = (img >> 11) / 31.0 * 255.99
+                g = ((img & 0x7E0) >> 5) / 63.0 * 255.99
+                b = (img & 0x1F) / 31.0 * 255.99
                 img_line.append([r, g, b])
             full_img.append(img_line)
 
         rgb = np.array(full_img, dtype="uint8")
-
-        # print(rgb.shape)
-
-        # im = Image.fromarray(rgb.astype(np.uint8))
 
         return rgb
 
@@ -105,9 +103,9 @@ class MADClient(QMainWindow):
         # Example NumPy array (you can replace this with your own image data)
         # In this example, we create a simple red square image
         width, height = 240, 240
-        print("requested")
+        # print("requested")
         self.image = self.tcpclient.send_request()
-        print("received")
+        # print("received")
 
         # Create a QImage from the NumPy array
         q_image = QImage(
